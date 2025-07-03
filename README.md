@@ -1,20 +1,77 @@
+Sure! Here's a **simplified and cleaner version** of the `README.md`, perfect for a collaborative project where everyone is working on different AP test cases:
+
+---
+
+````markdown
 # Eero AP Test Automation
 
-This repository contains scripts and tools to automate testing for Eero Access Points, including rate limiting, SQM (Smart Queue Management), CPU monitoring, and network performance testing using `iperf3` and `flent`.
+This repository is for automating various test cases for Eero Access Points (APs), like:
+- SQM (Smart Queue Management)
+- ACS (Automatic Channel Selection)
+- AP-STA Connectivity
+- Security (WPA2, WPA3, etc.)
 
-## Features
+## 👥 For quick start
 
-- Automated SSH or serial-based interaction with crane and AP devices  
-- Dynamic bandwidth shaping via `rate.sh` edits and execution  
-- SQM enable/disable workflow integration  
-- Real-time CPU stat collection using `mpstat -P ALL`  
-- Automated `iperf3` and `flent` test orchestration  
-- Wi-Fi station configuration via console  
-- Manual pauses for test steps involving mobile app actions
+### 1. Clone the Repo
 
-## Setup
+```bash
+git clone https://github.com/<your-username>/eero-ap-test-automation.git
+cd eero-ap-test-automation
+````
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/your-username/eero-ap-test-automation.git
-   cd eero-ap-test-automation
+### 2. Create a Folder for Your Test
+
+Make a new folder with your test name and add your scripts inside.
+
+Example:
+
+```bash
+mkdir sqm
+cd sqm
+touch test_sqm.py
+```
+
+You can name the folder something like `acs`, `security`, `ap_sta`, `beacon`, etc.
+
+### 3. Add a Small README in Your Folder
+
+Inside your test folder, create a `README.md` and describe:
+
+* What the test does
+* How to run it
+* Any dependencies
+
+### 4. Commit and Push
+
+```bash
+git checkout -b feature/<your-test-name>
+git add <your-folder-name>
+git commit -m "Added <your test name> test"
+git push origin feature/<your-test-name>
+```
+
+Then open a Pull Request on GitHub.
+
+## 🔁 Folder Structure Example
+
+```
+.
+├── sqm/
+│   └── test_sqm.py
+├── acs/
+│   └── acs_test.py
+├── ap_sta/
+│   └── sta_connect_test.py
+├── security/
+│   └── wpa3_test.sh
+└── README.md
+```
+
+## ✅ Notes
+
+* Keep your test code and logs clean.
+* Add instructions for others to run your test.
+* Coordinate with others to avoid duplication.
+
+---
