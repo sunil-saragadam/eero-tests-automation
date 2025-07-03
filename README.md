@@ -1,8 +1,3 @@
-Sure! Here's a **simplified and cleaner version** of the `README.md`, perfect for a collaborative project where everyone is working on different AP test cases:
-
----
-
-````markdown
 # Eero AP Test Automation
 
 This repository is for automating various test cases for Eero Access Points (APs), like:
