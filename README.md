@@ -1,1 +1,1 @@
-"#eero-tests-automation" 
+##eero-tests-automation
