@@ -30,7 +30,19 @@ def extract_beacon_json(pcap_file, ssid, output_json):
     with open(output_json, "w") as f:
         subprocess.run(cmd, stdout=f, check=True)
 
-# --- UTILITIES ---
+# --- JSON TAG EXTRACTION ---
+def get_tag_by_number(packet, target_number):
+    try:
+        tags = packet["_source"]["layers"]["wlan.mgt"]["wlan.tagged.all"]["wlan.tag"]
+        if isinstance(tags, dict):
+            tags = [tags]
+    except KeyError:
+        return None
+    for tag in tags:
+        if tag.get("wlan.tag.number") == str(target_number):
+            return tag
+    return None
+
 def get_ext_tag_by_number(packet, target_number):
     try:
         ext_tags = packet["_source"]["layers"]["wlan.mgt"]["wlan.tagged.all"]["wlan.ext_tag"]
@@ -51,20 +63,24 @@ def get_nested(d, *keys):
             return None
     return d
 
-# --- HE Decoder ---
-def decode_he_mcs_map(hex_val):
+# --- DECODERS ---
+def decode_he_mcs_map_verbose(hex_val):
+    result = {"total_nss": 0, "max_mcs": None, "streams": []}
     if not hex_val:
-        return (0, None)
+        return result
     bits = bin(int(hex_val, 16))[2:].zfill(16)
-    max_nss, max_mcs = 0, 0
     for i in range(0, 16, 2):
+        stream_num = (i // 2) + 1
         pair = bits[i:i+2]
-        if pair == "00": max_nss += 1; max_mcs = max(max_mcs, 7)
-        elif pair == "01": max_nss += 1; max_mcs = max(max_mcs, 9)
-        elif pair == "10": max_nss += 1; max_mcs = max(max_mcs, 11)
-    return {"max supported nss": max_nss, "max supported mcs": max_mcs}
+        if pair == "00": mcs = 7
+        elif pair == "01": mcs = 8
+        elif pair == "10": mcs = 9
+        else: continue
+        result["streams"].append({"nss": stream_num, "mcs_range": f"0–{mcs}"})
+        result["total_nss"] += 1
+        result["max_mcs"] = max(result["max_mcs"] or 0, mcs)
+    return result
 
-# --- EHT Decoder ---
 def decode_eht_mcs_map(hex_string):
     if not hex_string:
         return {"rx": {}, "tx": {}, "max_nss": 0, "max_mcs": None}
@@ -80,28 +96,73 @@ def decode_eht_mcs_map(hex_string):
             max_mcs = max(max_mcs or 0, mcs_max)
     return {"rx": rx, "tx": tx, "max_nss": max_nss, "max_mcs": max_mcs}
 
-# --- MAIN ANALYSIS ---
-def analyze_json(packet, mface = "mon0"):
+def decode_ht_rx_mcs_bitmask(rxbitmask_dict):
+    supported_mcs_indices = []
+    for key, hex_val in rxbitmask_dict.items():
+        bit_range = key.split('.')[-1]
+        if 'to' in bit_range:
+            start, end = map(int, bit_range.split('to'))
+        elif bit_range.isdigit():
+            start = end = int(bit_range)
+        else:
+            continue
+        bits = bin(int(hex_val, 16))[2:].zfill(end - start + 1)[::-1]
+        for i, bit in enumerate(bits):
+            if bit == "1": supported_mcs_indices.append(start + i)
+    if not supported_mcs_indices:
+        return {"total_nss": 0, "max_mcs": None, "supported_mcs_indices": []}
+    max_mcs = max(supported_mcs_indices)
+    total_nss = (max_mcs // 8) + 1
+    return {"total_nss": total_nss, "max_mcs": max_mcs, "supported_mcs_indices": supported_mcs_indices}
+
+def decode_vht_mcs_map(mcs_map_hex):
+    if not mcs_map_hex:
+        return {"total_nss": 0, "max_mcs": None, "streams": []}
+    val = int(mcs_map_hex, 16)
+    max_nss, max_mcs, streams = 0, 0, []
+    for i in range(8):
+        code = (val >> (i * 2)) & 0b11
+        if code == 0b00: streams.append((i + 1, 7)); max_nss += 1; max_mcs = max(max_mcs, 7)
+        elif code == 0b01: streams.append((i + 1, 8)); max_nss += 1; max_mcs = max(max_mcs, 8)
+        elif code == 0b10: streams.append((i + 1, 9)); max_nss += 1; max_mcs = max(max_mcs, 9)
+    return {"total_nss": max_nss, "max_mcs": max_mcs, "streams": [{"ss": ss, "mcs_range": f"0–{mcs}"} for ss, mcs in streams]}
+
+# --- ANALYSIS ---
+def analyze_json(packet, mface="mon0"):
     tag_he = get_ext_tag_by_number(packet, 35)
     tag_eht = get_ext_tag_by_number(packet, 108)
+    tag_ht = get_tag_by_number(packet, 45)
+    tag_vht = get_tag_by_number(packet, 191)
+
+    print("\n===== HT Capabilities (802.11n) =====")
+    if tag_ht:
+        rxbitmask = get_nested(tag_ht, "wlan.ht.mcsset", "wlan.ht.mcsset.rxbitmask")
+        print(decode_ht_rx_mcs_bitmask(rxbitmask))
+
+    print("\n===== VHT Capabilities (802.11ac) =====")
+    if tag_vht:
+        rx_vht = get_nested(tag_vht, "wlan.vht.mcsset", "wlan.vht.mcsset.rxmcsmap")
+        tx_vht = get_nested(tag_vht, "wlan.vht.mcsset", "wlan.vht.mcsset.txmcsmap")
+        print("RX:", decode_vht_mcs_map(rx_vht))
+        print("TX:", decode_vht_mcs_map(tx_vht))
 
     print("\n===== HE Capabilities (802.11ax) =====")
     rx_he_80 = get_nested(tag_he, "Supported HE-MCS and NSS Set", "Rx and Tx MCS Maps <= 80 MHz", "wlan.ext_tag.he_mcs_map.rx_he_mcs_map_lte_80")
     rx_he_160 = get_nested(tag_he, "Supported HE-MCS and NSS Set", "Rx and Tx MCS Maps 160 MHz", "wlan.ext_tag.he_mcs_map.rx_he_mcs_map_160")
-    print(f"HE 80MHz  -> {decode_he_mcs_map(rx_he_80)}")
-    print(f"HE 160MHz -> {decode_he_mcs_map(rx_he_160)}")
+    print("HE 80MHz  ->", decode_he_mcs_map_verbose(rx_he_80))
+    print("HE 160MHz ->", decode_he_mcs_map_verbose(rx_he_160))
 
     print("\n===== EHT Capabilities (802.11be) =====")
     eht_80 = get_nested(tag_eht, "Supported EHT-MCS and NSS Set", "wlan.eht.supported_eht_mcs_bss_set.eht_mcs_map_bw_le_80_mhz")
     eht_160 = get_nested(tag_eht, "Supported EHT-MCS and NSS Set", "wlan.eht.supported_eht_mcs_bss_set.eht_mcs_map_bw_eq_160_mhz")
-    print(f"EHT 80MHz  -> {decode_eht_mcs_map(eht_80)}")
-    print(f"EHT 160MHz -> {decode_eht_mcs_map(eht_160)}")
-    print("\n\n")
+    print("EHT 80MHz  ->", decode_eht_mcs_map(eht_80))
+    print("EHT 160MHz ->", decode_eht_mcs_map(eht_160))
+
     subprocess.run(["iw", "dev", mface, "del"], check=True)
 
 # --- CLI ENTRY ---
 def main():
-    parser = argparse.ArgumentParser(description="Capture and analyze AP HE/EHT capabilities.")
+    parser = argparse.ArgumentParser(description="Capture and analyze AP HT/VHT/HE/EHT capabilities.")
     parser.add_argument("-b", "--base-iface", required=True, help="e.g. wlan0")
     parser.add_argument("-m", "--mon-iface", default="mon0")
     parser.add_argument("-c", "--channel", required=True, type=int)
@@ -121,7 +182,7 @@ def main():
         print("[!] No beacon packet found.")
         return
 
-    analyze_json(packet = packets[0], mface = args.mon_iface)
+    analyze_json(packets[0], args.mon_iface)
 
 if __name__ == "__main__":
     main()
