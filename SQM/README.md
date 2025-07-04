@@ -32,14 +32,6 @@ SQM must be toggled via the eero admin app. The script will pause and wait for u
 
 ---
 
-## 🔁 Test Flow
-
-1. Configure upload/download rates via serial on the crane.
-2. Check SQM status on the AP. Pause for manual enable/disable via eero admin app if required.
-3. Run iperf3 and flent rrul tests while capturing CPU usage stats from the AP.
-
----
-
 ## 🚀 Usage
 
 ```bash
