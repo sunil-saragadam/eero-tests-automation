@@ -62,7 +62,7 @@ def decode_he_mcs_map(hex_val):
         if pair == "00": max_nss += 1; max_mcs = max(max_mcs, 7)
         elif pair == "01": max_nss += 1; max_mcs = max(max_mcs, 9)
         elif pair == "10": max_nss += 1; max_mcs = max(max_mcs, 11)
-    return (max_nss, max_mcs)
+    return {"max supported nss": max_nss, "max supported mcs": max_mcs}
 
 # --- EHT Decoder ---
 def decode_eht_mcs_map(hex_string):
@@ -81,7 +81,7 @@ def decode_eht_mcs_map(hex_string):
     return {"rx": rx, "tx": tx, "max_nss": max_nss, "max_mcs": max_mcs}
 
 # --- MAIN ANALYSIS ---
-def analyze_json(packet):
+def analyze_json(packet, mface = "mon0"):
     tag_he = get_ext_tag_by_number(packet, 35)
     tag_eht = get_ext_tag_by_number(packet, 108)
 
@@ -96,6 +96,8 @@ def analyze_json(packet):
     eht_160 = get_nested(tag_eht, "Supported EHT-MCS and NSS Set", "wlan.eht.supported_eht_mcs_bss_set.eht_mcs_map_bw_eq_160_mhz")
     print(f"EHT 80MHz  -> {decode_eht_mcs_map(eht_80)}")
     print(f"EHT 160MHz -> {decode_eht_mcs_map(eht_160)}")
+    print("\n\n")
+    subprocess.run(["iw", "dev", mface, "del"], check=True)
 
 # --- CLI ENTRY ---
 def main():
@@ -119,7 +121,7 @@ def main():
         print("[!] No beacon packet found.")
         return
 
-    analyze_json(packets[0])
+    analyze_json(packet = packets[0], mface = args.mon_iface)
 
 if __name__ == "__main__":
     main()
