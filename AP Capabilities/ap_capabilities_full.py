@@ -70,11 +70,11 @@ def decode_he_mcs_map_verbose(hex_val):
         return result
     bits = bin(int(hex_val, 16))[2:].zfill(16)
     for i in range(0, 16, 2):
-        stream_num = (i // 2) + 1
+        stream_num = 8 - (i //2)
         pair = bits[i:i+2]
         if pair == "00": mcs = 7
-        elif pair == "01": mcs = 8
-        elif pair == "10": mcs = 9
+        elif pair == "01": mcs = 9
+        elif pair == "10": mcs = 11
         else: continue
         result["streams"].append({"nss": stream_num, "mcs_range": f"0–{mcs}"})
         result["total_nss"] += 1
@@ -149,14 +149,14 @@ def analyze_json(packet, mface="mon0"):
     print("\n===== HE Capabilities (802.11ax) =====")
     rx_he_80 = get_nested(tag_he, "Supported HE-MCS and NSS Set", "Rx and Tx MCS Maps <= 80 MHz", "wlan.ext_tag.he_mcs_map.rx_he_mcs_map_lte_80")
     rx_he_160 = get_nested(tag_he, "Supported HE-MCS and NSS Set", "Rx and Tx MCS Maps 160 MHz", "wlan.ext_tag.he_mcs_map.rx_he_mcs_map_160")
-    print("HE 80MHz  ->", decode_he_mcs_map_verbose(rx_he_80))
-    print("HE 160MHz ->", decode_he_mcs_map_verbose(rx_he_160))
+    print("HE <=80MHz  ->", decode_he_mcs_map_verbose(rx_he_80))
+    print("HE <=160MHz ->", decode_he_mcs_map_verbose(rx_he_160))
 
     print("\n===== EHT Capabilities (802.11be) =====")
     eht_80 = get_nested(tag_eht, "Supported EHT-MCS and NSS Set", "wlan.eht.supported_eht_mcs_bss_set.eht_mcs_map_bw_le_80_mhz")
     eht_160 = get_nested(tag_eht, "Supported EHT-MCS and NSS Set", "wlan.eht.supported_eht_mcs_bss_set.eht_mcs_map_bw_eq_160_mhz")
-    print("EHT 80MHz  ->", decode_eht_mcs_map(eht_80))
-    print("EHT 160MHz ->", decode_eht_mcs_map(eht_160))
+    print("EHT <=80MHz  ->", decode_eht_mcs_map(eht_80))
+    print("EHT <=160MHz ->", decode_eht_mcs_map(eht_160))
 
     subprocess.run(["iw", "dev", mface, "del"], check=True)
 
