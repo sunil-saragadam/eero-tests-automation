@@ -5,16 +5,15 @@ import signal
 import argparse
 import sys
 
-# --- SETUP MONITOR ---
+# --- setup monitor ---
 def setup_monitor(base_iface, mon_iface):
     '''Create and bring up a monitor interface.'''
     print(f"[INFO] Setting up monitor interface '{mon_iface}' from '{base_iface}'...")
     subprocess.run(["iw", "dev", base_iface, "interface", "add", mon_iface, "type", "monitor"], check=True)
     subprocess.run(["ip", "link", "set", mon_iface, "up"], check=True)
     print(f"[INFO] Monitor interface '{mon_iface}' is up.")
-    
 
-# --- START SNIFFING ---
+# --- start sniffing ---
 def start_sniffer(interface, channel, pcap_file):
     '''Start tshark capture on the given interface.'''
     print(f"[INFO] Setting channel {channel} on {interface}")
@@ -27,7 +26,7 @@ def start_sniffer(interface, channel, pcap_file):
     ]
     return subprocess.Popen(cmd, preexec_fn=os.setsid)
 
-# --- STOP SNIFFING ---
+# --- stop sniffing ---
 def stop_sniffer(proc):
     '''Terminate the tshark process group.'''
     print("[INFO] Stopping tshark capture...")
@@ -36,7 +35,7 @@ def stop_sniffer(proc):
     except Exception as e:
         print(f"[WARN] Failed to stop sniffer cleanly: {e}")
 
-# --- CREATE CLIENT METHOD ---
+# --- create client method ---
 def create_client_cli(mgr, radio, ssid, bssid, passwd, security):
     '''Start a client from cli using lanforge script'''
     CREATE_STATION_CMD = [
@@ -44,13 +43,12 @@ def create_client_cli(mgr, radio, ssid, bssid, passwd, security):
         "--mgr", mgr,
         "--radio", radio,
         "--ssid", ssid,
-        "--bssid", bssid,
         "--passwd", passwd,
+        "--bssid", bssid,
         "--security", security,
         "--num_stations", "1"
     ]
     return subprocess.run(CREATE_STATION_CMD, check=True)
-
 
 
 def main():
@@ -59,7 +57,7 @@ def main():
     )
     parser.add_argument("-b", "--base-iface", default="wlan0", help="Base wireless interface (e.g. wlan0)")
     parser.add_argument("-m", "--monitor-iface", default="mon0", help="Monitor interface name to create")
-    parser.add_argument("-c", "--channel", default=None, help="Wireless channel to set on monitor interface (optional)")
+    parser.add_argument("-c", "--channel", required=True, help="Wireless channel to set on monitor interface")
     parser.add_argument("-p", "--pcap-out", default="/tmp/connection.pcap", help="Path to write captured pcap")
     parser.add_argument("--mgr", required=True, help="LANforge manager IP")
     parser.add_argument("--radio", required=True, help="Radio interface (e.g. 1.1.wiphy1)")
@@ -70,7 +68,6 @@ def main():
 
     args = parser.parse_args()
 
-    # Setup monitor
     try:
         setup_monitor(args.base_iface, args.monitor_iface)
     except subprocess.CalledProcessError as e:
@@ -79,7 +76,7 @@ def main():
 
     sniffer = start_sniffer(args.monitor_iface, args.channel, args.pcap_out)
     time.sleep(1)
-    
+
     try:
         print("[INFO] Running client creation command...")
         create_client_cli(
@@ -102,5 +99,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-# py-scripts]$ sudo python3 securities_full.py -b wlan0 -m mon0 -c 36 --mgr 192.168.212.108 --radio 1.1.03 --ssid candela18 --passwd 12345678 --security wpa2

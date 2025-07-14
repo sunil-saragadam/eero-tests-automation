@@ -1,7 +1,9 @@
 import subprocess
 import json
 import os
+import sys
 import argparse
+import csv
 
 # --- MONITOR INTERFACE SETUP ---
 def setup_monitor(base_iface="wlan0", mon_iface="mon0"):
@@ -69,8 +71,8 @@ def decode_he_mcs_map_verbose(hex_val):
     if not hex_val:
         return result
     bits = bin(int(hex_val, 16))[2:].zfill(16)
-    for i in range(0, 16, 2):
-        stream_num = 8 - (i //2)
+    for i in range(16, 0, -2):
+        stream_num = 8 - ((i // 2))
         pair = bits[i:i+2]
         if pair == "00": mcs = 7
         elif pair == "01": mcs = 9
@@ -127,38 +129,176 @@ def decode_vht_mcs_map(mcs_map_hex):
         elif code == 0b10: streams.append((i + 1, 9)); max_nss += 1; max_mcs = max(max_mcs, 9)
     return {"total_nss": max_nss, "max_mcs": max_mcs, "streams": [{"ss": ss, "mcs_range": f"0–{mcs}"} for ss, mcs in streams]}
 
+# --- SAVE TO CSV ---
+def save_capabilities_to_csv(data_rows, filename="wifi_caps.csv"):
+    fieldnames = ["Mode", "Bandwidth", "Total NSS", "Max MCS", "short GI support"]
+    with open(filename, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in data_rows:
+            writer.writerow(row)
+    print(f"[INFO] Capability summary saved to {filename}")
+
 # --- ANALYSIS ---
 def analyze_json(packet, mface="mon0"):
     tag_he = get_ext_tag_by_number(packet, 35)
     tag_eht = get_ext_tag_by_number(packet, 108)
     tag_ht = get_tag_by_number(packet, 45)
     tag_vht = get_tag_by_number(packet, 191)
+    csv_rows = []
 
     print("\n===== HT Capabilities (802.11n) =====")
     if tag_ht:
         rxbitmask = get_nested(tag_ht, "wlan.ht.mcsset", "wlan.ht.mcsset.rxbitmask")
-        print(decode_ht_rx_mcs_bitmask(rxbitmask))
+        short_GI_20 = "20MHz" if get_nested(tag_ht, "wlan.ht.capabilities_tree", "wlan.ht.capabilities.short20") == "1" else ""
+        short_GI_40 = "40MHz" if get_nested(tag_ht, "wlan.ht.capabilities_tree", "wlan.ht.capabilities.short40") == "1" else ""
+        ht_map = decode_ht_rx_mcs_bitmask(rxbitmask)
+        print(ht_map)
+        csv_rows.append({
+            "Mode": "HT", "Bandwidth": "20/40",
+            "Total NSS": ht_map["total_nss"],
+            "Max MCS": ht_map["max_mcs"],
+            "short GI support": f"{short_GI_20} {short_GI_40}"
+        })
 
     print("\n===== VHT Capabilities (802.11ac) =====")
     if tag_vht:
         rx_vht = get_nested(tag_vht, "wlan.vht.mcsset", "wlan.vht.mcsset.rxmcsmap")
         tx_vht = get_nested(tag_vht, "wlan.vht.mcsset", "wlan.vht.mcsset.txmcsmap")
-        print("RX:", decode_vht_mcs_map(rx_vht))
-        print("TX:", decode_vht_mcs_map(tx_vht))
+        short_GI_80 = "80MHz" if get_nested(tag_vht, "wlan.vht.capabilities_tree", "wlan.vht.capabilities.short80") == "1" else ""
+        short_GI_160 = "160MHz" if get_nested(tag_vht, "wlan.vht.capabilities_tree", "wlan.vht.capabilities.short160") == "1" else ""
+        vht_rx = decode_vht_mcs_map(rx_vht)
+        vht_tx = decode_vht_mcs_map(tx_vht)
+        print("RX:", vht_rx)
+        print("TX:", vht_tx)
+        transmission = ["RX", "TX"]
+        for i, map in enumerate([vht_rx, vht_tx]):
+            csv_rows.append({
+                "Mode": f"VHT {transmission[i]}", "Bandwidth": "20/40/80/160",
+                "Total NSS": map["total_nss"],
+                "Max MCS": map["max_mcs"],
+                "short GI support": f"{short_GI_80} {short_GI_160}"
+            })
 
     print("\n===== HE Capabilities (802.11ax) =====")
     rx_he_80 = get_nested(tag_he, "Supported HE-MCS and NSS Set", "Rx and Tx MCS Maps <= 80 MHz", "wlan.ext_tag.he_mcs_map.rx_he_mcs_map_lte_80")
     rx_he_160 = get_nested(tag_he, "Supported HE-MCS and NSS Set", "Rx and Tx MCS Maps 160 MHz", "wlan.ext_tag.he_mcs_map.rx_he_mcs_map_160")
-    print("HE <=80MHz  ->", decode_he_mcs_map_verbose(rx_he_80))
-    print("HE <=160MHz ->", decode_he_mcs_map_verbose(rx_he_160))
+    he_rx_80 = decode_he_mcs_map_verbose(rx_he_80)
+    he_rx_160 = decode_he_mcs_map_verbose(rx_he_160)
+    print("HE <=80MHz  ->", he_rx_80)
+    print("HE 160MHz ->", he_rx_160)
+    bwidths = ["<=80", "160"]
+    for i, map in enumerate([he_rx_80, he_rx_160]):
+        csv_rows.append({
+            "Mode": "HE", "Bandwidth": bwidths[i],
+            "Total NSS": map["total_nss"],
+            "Max MCS": map["max_mcs"]
+        })
+
 
     print("\n===== EHT Capabilities (802.11be) =====")
     eht_80 = get_nested(tag_eht, "Supported EHT-MCS and NSS Set", "wlan.eht.supported_eht_mcs_bss_set.eht_mcs_map_bw_le_80_mhz")
     eht_160 = get_nested(tag_eht, "Supported EHT-MCS and NSS Set", "wlan.eht.supported_eht_mcs_bss_set.eht_mcs_map_bw_eq_160_mhz")
-    print("EHT <=80MHz  ->", decode_eht_mcs_map(eht_80))
-    print("EHT <=160MHz ->", decode_eht_mcs_map(eht_160))
+    eht_320 = get_nested(tag_eht, "Supported EHT-MCS and NSS Set", "wlan.eht.supported_eht_mcs_bss_set.eht_mcs_map_bw_eq_320_mhz")
+    eht80 = decode_eht_mcs_map(eht_80)
+    eht160 = decode_eht_mcs_map(eht_160)
+    eht320 = decode_eht_mcs_map(eht_320)
+    print("EHT <=80MHz  ->", eht80)
+    print("EHT 160MHz ->", eht160)
+    print("EHT 320MHz ->", eht320)
+    bwidths = ["<=80", "160", "320"]
+    for i, map in enumerate([eht80, eht160, eht320]):
+        csv_rows.append({
+            "Mode": "EHT", "Bandwidth": bwidths[i],
+            "Total NSS": map["max_nss"],
+            "Max MCS": map["max_mcs"]
+        })
 
-    subprocess.run(["iw", "dev", mface, "del"], check=True)
+    save_capabilities_to_csv(csv_rows)
+
+    try:
+        print("\n[INFO] monitor interface cleanup started.")
+        subprocess.run(["iw", "dev", mface, "del"], check=True)
+    except subprocess.SubprocessError as e:
+        print(f"[ERROR] failed to close monitor interface {e}")
+        sys.exit(1)
+    finally:
+        print("[INFO] monitor interface cleaned successfully.")
+
+# # --- ANALYSIS ---
+# def analyze_json(packet, mface="mon0"):
+#     tag_he = get_ext_tag_by_number(packet, 35)
+#     tag_eht = get_ext_tag_by_number(packet, 108)
+#     tag_ht = get_tag_by_number(packet, 45)
+#     tag_vht = get_tag_by_number(packet, 191)
+
+#     csv_rows = []
+
+#     print("\n===== HT Capabilities (802.11n) =====")
+#     if tag_ht:
+#         rxbitmask = get_nested(tag_ht, "wlan.ht.mcsset", "wlan.ht.mcsset.rxbitmask")
+#         ht_res = decode_ht_rx_mcs_bitmask(rxbitmask)
+#         print(ht_res)
+#         csv_rows.append({
+#             "Mode": "HT", "Bandwidth": "20/40",
+#             "RX_NSS": ht_res["total_nss"],
+#             "RX_Max_MCS": ht_res["max_mcs"],
+#             "TX_NSS": ht_res["total_nss"],
+#             "TX_Max_MCS": ht_res["max_mcs"]
+#         })
+
+#     print("\n===== VHT Capabilities (802.11ac) =====")
+#     if tag_vht:
+#         rx_vht = decode_vht_mcs_map(get_nested(tag_vht, "wlan.vht.mcsset", "wlan.vht.mcsset.rxmcsmap"))
+#         tx_vht = decode_vht_mcs_map(get_nested(tag_vht, "wlan.vht.mcsset", "wlan.vht.mcsset.txmcsmap"))
+#         print("RX:", rx_vht)
+#         print("TX:", tx_vht)
+#         csv_rows.append({
+#             "Mode": "VHT", "Bandwidth": "20/40/80/160",
+#             "RX_NSS": rx_vht["total_nss"],
+#             "RX_Max_MCS": rx_vht["max_mcs"],
+#             "TX_NSS": tx_vht["total_nss"],
+#             "TX_Max_MCS": tx_vht["max_mcs"]
+#         })
+
+#     print("\n===== HE Capabilities (802.11ax) =====")
+#     for bw, label in [("lte_80", "<=80MHz"), ("160", "160MHz")]:
+#         rx_hex = get_nested(tag_he, "Supported HE-MCS and NSS Set", f"Rx and Tx MCS Maps {label}", f"wlan.ext_tag.he_mcs_map.rx_he_mcs_map_{bw}")
+#         tx_hex = get_nested(tag_he, "Supported HE-MCS and NSS Set", f"Rx and Tx MCS Maps {label}", f"wlan.ext_tag.he_mcs_map.tx_he_mcs_map_{bw}")
+#         rx_dec = decode_he_mcs_map_verbose(rx_hex)
+#         tx_dec = decode_he_mcs_map_verbose(tx_hex)
+#         print(f"HE {label} RX ->", rx_dec)
+#         print(f"HE {label} TX ->", tx_dec)
+#         csv_rows.append({
+#             "Mode": "HE", "Bandwidth": label,
+#             "RX_NSS": rx_dec["total_nss"],
+#             "RX_Max_MCS": rx_dec["max_mcs"],
+#             "TX_NSS": tx_dec["total_nss"],
+#             "TX_Max_MCS": tx_dec["max_mcs"]
+#         })
+
+#     print("\n===== EHT Capabilities (802.11be) =====")
+#     for bw, label in [("bw_le_80_mhz", "<=80MHz"), ("bw_eq_160_mhz", "160MHz"), ("bw_eq_320_mhz", "320MHz")]:
+#         eht = decode_eht_mcs_map(get_nested(tag_eht, "Supported EHT-MCS and NSS Set", f"wlan.eht.supported_eht_mcs_bss_set.eht_mcs_map_{bw}"))
+#         print(f"EHT {label} ->", eht)
+#         csv_rows.append({
+#             "Mode": "EHT", "Bandwidth": label,
+#             "RX_NSS": sum(eht['rx'].values()),
+#             "RX_Max_MCS": eht['max_mcs'],
+#             "TX_NSS": sum(eht['tx'].values()),
+#             "TX_Max_MCS": eht['max_mcs']
+#         })
+
+#     save_capabilities_to_csv(csv_rows)
+
+#     try:
+#         print("\n[INFO] monitor interface cleanup started.")
+#         subprocess.run(["iw", "dev", mface, "del"], check=True)
+#     except subprocess.SubprocessError as e:
+#         print(f"[ERROR] failed to close monitor interface {e}")
+#         sys.exit(1)
+#     finally:
+#         print("[INFO] monitor interface cleaned successfully.")
 
 # --- CLI ENTRY ---
 def main():
