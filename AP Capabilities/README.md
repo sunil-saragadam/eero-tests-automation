@@ -1,4 +1,4 @@
-## 📡 AP HE/EHT Capability Analyzer
+## 📡 AP HT/VHTHE/EHT Capability Analyzer
 
 This script captures Wi-Fi beacon frames from a specified SSID and extracts **802.11ax (HE)** and **802.11be (EHT)** capabilities, such as:
 
