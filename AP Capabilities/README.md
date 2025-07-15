@@ -1,6 +1,6 @@
 ## 📡 AP HT/VHTHE/EHT Capability Analyzer
 
-This script captures Wi-Fi beacon frames from a specified SSID and extracts **802.11ax (HE)** and **802.11be (EHT)** capabilities, such as:
+This script captures Wi-Fi beacon frames from a specified SSID and extracts **802.11n (HT)**, **802.11ac (VHT)**, **802.11ax (HE)** and **802.11be (EHT)** capabilities, such as:
 
 * Maximum spatial streams (NSS)
 * Maximum MCS support
@@ -14,7 +14,7 @@ It uses `tshark` and `iw` to sniff, filter, and decode capabilities from beacon 
 
 * Creates a monitor-mode interface on demand
 * Captures a beacon frame on a specified channel
-* Extracts **HE (tag 35)** and **EHT (tag 108)** extended capabilities
+* Extracts **802.11n (HT)**, **802.11ac (VHT)**, **HE (tag 35)** and **EHT (tag 108)** extended capabilities
 * Decodes MCS/NSS per bandwidth
 * Human-readable output
 
@@ -38,8 +38,8 @@ sudo python3 analyze_ap_capabilities.py \
   -c 36 \
   -s "candela18 - 0270-2G-1" \
   -t 5 \
-  -p scan.pcap \
-  -j beacon.json
+  -p scan.pcap (optional) \
+  -j beacon.json (optiona)
 ```
 
 #### Arguments:
